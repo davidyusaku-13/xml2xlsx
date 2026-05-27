@@ -3,7 +3,7 @@
 Convert XML to XLSX. Auto-detects Microsoft Excel XML Spreadsheet format (Office 2003) and generic XML.
 
 ```
-Usage: xml2xlsx <input.xml> <output.xlsx>
+Usage: xml2xlsx <input.xml> [output.xlsx]
 ```
 
 ## Features
