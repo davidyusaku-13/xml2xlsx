@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/xuri/excelize/v2"
@@ -12,7 +13,7 @@ import (
 // excelSheet represents one parsed worksheet from Excel XML Spreadsheet format.
 type excelSheet struct {
 	Name string
-	Rows [][]string
+	Rows [][]interface{}
 }
 
 // isExcelXML checks if the root element is an Excel XML Spreadsheet workbook.
@@ -106,8 +107,8 @@ func parseWorksheet(dec *xml.Decoder, start xml.StartElement) (excelSheet, error
 }
 
 // parseTable reads a <Table> element and returns all rows.
-func parseTable(dec *xml.Decoder) ([][]string, error) {
-	var rows [][]string
+func parseTable(dec *xml.Decoder) ([][]interface{}, error) {
+	var rows [][]interface{}
 
 	for {
 		tok, err := dec.Token()
@@ -133,8 +134,8 @@ func parseTable(dec *xml.Decoder) ([][]string, error) {
 }
 
 // parseRow reads a <Row> element and returns its cell values.
-func parseRow(dec *xml.Decoder) ([]string, error) {
-	var cells []string
+func parseRow(dec *xml.Decoder) ([]interface{}, error) {
+	var cells []interface{}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -159,8 +160,9 @@ func parseRow(dec *xml.Decoder) ([]string, error) {
 }
 
 // parseCell reads a <Cell> element and returns its Data value (or empty string).
-func parseCell(dec *xml.Decoder) (string, error) {
-	var value string
+// Numeric values (ss:Type="Number") are returned as float64; everything else as string.
+func parseCell(dec *xml.Decoder) (interface{}, error) {
+	var value interface{} = ""
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -170,11 +172,20 @@ func parseCell(dec *xml.Decoder) (string, error) {
 		switch t := tok.(type) {
 		case xml.StartElement:
 			if t.Name.Local == "Data" {
-				val, err := parseData(dec)
+				text, err := parseData(dec)
 				if err != nil {
 					return "", err
 				}
-				value = val
+				dataType := getAttr(t.Attr, "Type")
+				if dataType == "Number" {
+					if f, err := strconv.ParseFloat(text, 64); err == nil {
+						value = f
+					} else {
+						value = text
+					}
+				} else {
+					value = text
+				}
 			} else {
 				skipElement(dec)
 			}
@@ -278,7 +289,5 @@ func writeExcelXLSX(path string, sheets []excelSheet) error {
 		}
 	}
 
-	// Remove the unused default sheet if we created extra sheets above.
-	// The first sheet was renamed in-place; no deletion needed.
 	return f.SaveAs(path)
 }
