@@ -4,16 +4,29 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintf(os.Stderr, "Usage: xml2xlsx <input.xml> <output.xlsx>\n")
+	var input, output string
+
+	switch len(os.Args) {
+	case 2:
+		input = os.Args[1]
+		ext := filepath.Ext(input)
+		if ext == ".xml" || ext == ".XML" {
+			output = strings.TrimSuffix(input, ext) + ".xlsx"
+		} else {
+			output = input + ".xlsx"
+		}
+	case 3:
+		input = os.Args[1]
+		output = os.Args[2]
+	default:
+		fmt.Fprintf(os.Stderr, "Usage: xml2xlsx <input.xml> [output.xlsx]\n")
 		os.Exit(1)
 	}
-
-	input := os.Args[1]
-	output := os.Args[2]
 
 	f, err := os.Open(input)
 	if err != nil {
