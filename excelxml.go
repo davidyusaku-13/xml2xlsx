@@ -109,6 +109,7 @@ func parseWorksheet(dec *xml.Decoder, start xml.StartElement) (excelSheet, error
 // parseTable reads a <Table> element and returns all rows.
 func parseTable(dec *xml.Decoder) ([][]interface{}, error) {
 	var rows [][]interface{}
+	rowIdx := 0
 
 	for {
 		tok, err := dec.Token()
@@ -119,11 +120,25 @@ func parseTable(dec *xml.Decoder) ([][]interface{}, error) {
 		switch t := tok.(type) {
 		case xml.StartElement:
 			if t.Name.Local == "Row" {
+				if idxStr := getAttr(t.Attr, "Index"); idxStr != "" {
+					if idx, err := strconv.Atoi(idxStr); err == nil {
+						targetIdx := idx - 1
+						for len(rows) < targetIdx {
+							rows = append(rows, nil)
+						}
+						rowIdx = targetIdx
+					}
+				}
 				row, err := parseRow(dec)
 				if err != nil {
 					return rows, err
 				}
-				rows = append(rows, row)
+				if rowIdx < len(rows) {
+					rows[rowIdx] = row
+				} else {
+					rows = append(rows, row)
+				}
+				rowIdx++
 			} else {
 				skipElement(dec)
 			}
@@ -136,6 +151,7 @@ func parseTable(dec *xml.Decoder) ([][]interface{}, error) {
 // parseRow reads a <Row> element and returns its cell values.
 func parseRow(dec *xml.Decoder) ([]interface{}, error) {
 	var cells []interface{}
+	colIdx := 0
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -145,11 +161,25 @@ func parseRow(dec *xml.Decoder) ([]interface{}, error) {
 		switch t := tok.(type) {
 		case xml.StartElement:
 			if t.Name.Local == "Cell" {
+				if idxStr := getAttr(t.Attr, "Index"); idxStr != "" {
+					if idx, err := strconv.Atoi(idxStr); err == nil {
+						targetIdx := idx - 1
+						for len(cells) < targetIdx {
+							cells = append(cells, "")
+						}
+						colIdx = targetIdx
+					}
+				}
 				val, err := parseCell(dec)
 				if err != nil {
 					return cells, err
 				}
-				cells = append(cells, val)
+				if colIdx < len(cells) {
+					cells[colIdx] = val
+				} else {
+					cells = append(cells, val)
+				}
+				colIdx++
 			} else {
 				skipElement(dec)
 			}
@@ -248,14 +278,29 @@ func writeExcelXLSX(path string, sheets []excelSheet) error {
 	f := excelize.NewFile()
 	defer f.Close()
 
+	seenNames := make(map[string]bool)
 	for i, sheet := range sheets {
+		name := sanitizeSheetName(sheet.Name)
+		uniqueName := name
+		counter := 1
+		for seenNames[strings.ToLower(uniqueName)] {
+			suffix := fmt.Sprintf("%d", counter)
+			if len(name)+len(suffix) > 31 {
+				uniqueName = name[:31-len(suffix)] + suffix
+			} else {
+				uniqueName = name + suffix
+			}
+			counter++
+		}
+		seenNames[strings.ToLower(uniqueName)] = true
+
 		var sheetName string
 		if i == 0 {
 			sheetName = "Sheet1"
-			f.SetSheetName(sheetName, sheet.Name)
-			sheetName = sheet.Name
+			f.SetSheetName(sheetName, uniqueName)
+			sheetName = uniqueName
 		} else {
-			idx, err := f.NewSheet(sheet.Name)
+			idx, err := f.NewSheet(uniqueName)
 			if err != nil {
 				return fmt.Errorf("new sheet: %w", err)
 			}
@@ -271,6 +316,9 @@ func writeExcelXLSX(path string, sheets []excelSheet) error {
 		}
 
 		for rowIdx, row := range sheet.Rows {
+			if row == nil {
+				continue
+			}
 			cells := make([]interface{}, len(row))
 			for j, val := range row {
 				cells[j] = val
@@ -290,4 +338,16 @@ func writeExcelXLSX(path string, sheets []excelSheet) error {
 	}
 
 	return f.SaveAs(path)
+}
+
+func sanitizeSheetName(name string) string {
+	r := strings.NewReplacer("\\", "", "/", "", "?", "", "*", "", ":", "", "[", "", "]", "")
+	s := r.Replace(name)
+	if len(s) > 31 {
+		s = s[:31]
+	}
+	if s == "" {
+		s = "Sheet"
+	}
+	return s
 }
